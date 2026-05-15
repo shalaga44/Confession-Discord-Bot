@@ -1,0 +1,3 @@
+package dev.shalaga44.embeds
+
+object ModerationEmbedFactory
