@@ -1,0 +1,94 @@
+name: Deploy confession-discord-bot
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-confession-discord-bot
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      SERVICE_NAME: confession-discord-bot
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        run: |
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_PATH"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Make Gradle executable
+        run: chmod +x gradlew
+
+      - name: Build fat jar
+        run: ./gradlew clean shadowJar
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Add server host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${DEPLOY_PORT:-22}" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Ensure deploy directory exists
+        run: |
+          ssh -p "${DEPLOY_PORT:-22}" "${DEPLOY_USER}@${DEPLOY_HOST}" "
+            mkdir -p '${DEPLOY_PATH}/current'
+          "
+
+      - name: Sync project to server
+        run: |
+          rsync -az --delete \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            --exclude '.gradle/' \
+            --exclude '.idea/' \
+            --exclude '.kotlin/' \
+            --exclude '.env' \
+            --exclude 'data/' \
+            --exclude 'build/tmp/' \
+            -e "ssh -p ${DEPLOY_PORT:-22}" \
+            ./ "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/current/"
+
+      - name: Restart service
+        run: |
+          ssh -p "${DEPLOY_PORT:-22}" "${DEPLOY_USER}@${DEPLOY_HOST}" "
+            set -e
+
+            cd '${DEPLOY_PATH}/current'
+
+            chmod +x gradlew
+            chmod +x run.sh
+            chmod +x deploy/install_systemd.sh
+
+            sudo bash deploy/install_systemd.sh \
+              '${DEPLOY_PATH}/current' \
+              '${DEPLOY_USER}' \
+              '${SERVICE_NAME}'
+
+            sudo systemctl restart '${SERVICE_NAME}'
+            sudo systemctl status '${SERVICE_NAME}' --no-pager
+          "

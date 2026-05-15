@@ -50,3 +50,9 @@ bin/
 ### Runtime ###
 data/
 logs/
+*.db
+*.sqlite
+*.sqlite3
+
+### Deployment ###
+dist/

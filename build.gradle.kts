@@ -1,6 +1,7 @@
 plugins {
     kotlin("jvm") version "2.3.10"
     application
+    id("com.gradleup.shadow") version "9.0.0"
 }
 
 group = "dev.shalaga44"
@@ -45,4 +46,10 @@ application {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+tasks.shadowJar {
+    archiveBaseName.set("confession-discord-bot")
+    archiveClassifier.set("")
+    archiveVersion.set("")
 }
