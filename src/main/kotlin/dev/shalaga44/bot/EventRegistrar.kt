@@ -19,6 +19,7 @@ import dev.kord.core.entity.interaction.GuildInteraction
 import dev.kord.core.entity.interaction.Interaction
 import dev.kord.core.entity.interaction.SubCommand
 import dev.kord.core.event.gateway.ReadyEvent
+import dev.kord.core.event.guild.GuildCreateEvent
 import dev.kord.core.event.interaction.ButtonInteractionCreateEvent
 import dev.kord.core.event.interaction.ChatInputCommandInteractionCreateEvent
 import dev.kord.core.event.interaction.ModalSubmitInteractionCreateEvent
@@ -64,6 +65,7 @@ class EventRegistrar(
 
     suspend fun register() {
         registerReadyListener()
+        registerGuildJoinListener()
         registerInteractionListener()
         registerButtonListener()
         registerModalListener()
@@ -72,6 +74,39 @@ class EventRegistrar(
     private suspend fun registerReadyListener() {
         kord.on<ReadyEvent> {
             println("Connected as ${self.username}")
+        }
+    }
+
+    private suspend fun registerGuildJoinListener() {
+        kord.on<GuildCreateEvent> {
+
+            runCatching {
+                val owner =
+                    kord.getUser(guild.ownerId)
+                        ?: return@runCatching
+
+                val dmChannel =
+                    owner.getDmChannel()
+
+                dmChannel.createMessage {
+                    content =
+                        """
+                        Thanks for adding confession-discord-bot to "${guild.name}".
+                        
+                        Run `/help section:admin` inside your server anytime for setup instructions.
+                        """.trimIndent()
+
+                    embed {
+                        HelpEmbedFactory
+                            .buildAdminHelpEmbed()
+                            .invoke(this)
+                    }
+                }
+            }.onFailure {
+                println(
+                    "Failed to send onboarding help for guild ${guild.id.value}: ${it.message}"
+                )
+            }
         }
     }
 
