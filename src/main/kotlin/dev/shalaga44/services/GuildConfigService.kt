@@ -126,6 +126,7 @@ class GuildConfigService {
             it[id] = guildId
             it[confessionChannelId] = guildId
             it[moderatorRoleIds] = ""
+            it[nextConfessionId] = 1
         }
     }
 

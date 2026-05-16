@@ -113,66 +113,91 @@ class EventRegistrar(
 
     private suspend fun registerInteractionListener() {
         kord.on<ChatInputCommandInteractionCreateEvent> {
-            when (interaction.command.rootName) {
-                "confess" -> handleConfession()
-                "reply" -> handleReply()
-                "report" -> handleReport()
-                "config" -> handleConfig()
-                "help" -> handleHelp()
+            runCatching {
+                when (interaction.command.rootName) {
+                    "confess" -> handleConfession()
+                    "reply" -> handleReply()
+                    "report" -> handleReport()
+                    "config" -> handleConfig()
+                    "help" -> handleHelp()
+                }
+            }.onFailure {
+                println(
+                    "Interaction command failed: ${interaction.command.rootName} - ${it.message}"
+                )
+
+                it.printStackTrace()
             }
         }
     }
 
     private suspend fun registerButtonListener() {
         kord.on<ButtonInteractionCreateEvent> {
-            val componentId = interaction.componentId
+            runCatching {
+                val componentId = interaction.componentId
 
-            when {
-                componentId.startsWith("approve:") -> {
-                    handleApprove(componentId)
-                }
+                when {
+                    componentId.startsWith("approve:") -> {
+                        handleApprove(componentId)
+                    }
 
-                componentId.startsWith("approve-reply:") -> {
-                    handleApproveReply(componentId)
-                }
+                    componentId.startsWith("approve-reply:") -> {
+                        handleApproveReply(componentId)
+                    }
 
-                componentId.startsWith("reject:") -> {
-                    handleRejectPrompt(componentId)
-                }
+                    componentId.startsWith("reject:") -> {
+                        handleRejectPrompt(componentId)
+                    }
 
-                componentId.startsWith("reply-thread:") -> {
-                    handleReplyThread(componentId)
-                }
+                    componentId.startsWith("reply-thread:") -> {
+                        handleReplyThread(componentId)
+                    }
 
-                componentId == "submit-confession" -> {
-                    interaction.modal(
-                        title = "Submit Anonymous Confession",
-                        customId = "submit-confession-modal"
-                    ) {
-                        actionRow {
-                            textInput(
-                                style = dev.kord.common.entity.TextInputStyle.Paragraph,
-                                customId = "confession-content",
-                                label = "Confession"
-                            ) {
-                                required = true
-                                placeholder =
-                                    "Write your anonymous confession"
-                                allowedLength = 1..4000
+                    componentId == "submit-confession" -> {
+                        interaction.modal(
+                            title = "Submit Anonymous Confession",
+                            customId = "submit-confession-modal"
+                        ) {
+                            actionRow {
+                                textInput(
+                                    style = dev.kord.common.entity.TextInputStyle.Paragraph,
+                                    customId = "confession-content",
+                                    label = "Confession"
+                                ) {
+                                    required = true
+                                    placeholder =
+                                        "Write your anonymous confession"
+                                    allowedLength = 1..4000
+                                }
+                            }
+
+                            actionRow {
+                                textInput(
+                                    style = dev.kord.common.entity.TextInputStyle.Short,
+                                    customId = "confession-image-url",
+                                    label = "Attachment URL (optional)"
+                                ) {
+                                    required = false
+                                    placeholder =
+                                        "https://example.com/image.png"
+                                }
                             }
                         }
+                    }
 
-                        actionRow {
-                            textInput(
-                                style = dev.kord.common.entity.TextInputStyle.Short,
-                                customId = "confession-image-url",
-                                label = "Attachment URL (optional)"
-                            ) {
-                                required = false
-                                placeholder =
-                                    "https://example.com/image.png"
-                            }
-                        }
+                    else -> {}
+                }
+            }.onFailure {
+                println(
+                    "Button interaction failed: ${interaction.componentId} - ${it.message}"
+                )
+
+                it.printStackTrace()
+
+                runCatching {
+                    interaction.respondEphemeral {
+                        content =
+                            "An internal error occurred while processing this action."
                     }
                 }
             }
@@ -292,7 +317,8 @@ class EventRegistrar(
                 ?: return
 
         val confession =
-            confessionService.getConfession(confessionId)
+            confessionService.getConfessionById(
+                confessionId = confessionId.toInt())
                 ?: return
 
         val channel = kord.getChannel(
@@ -340,7 +366,7 @@ class EventRegistrar(
 
                 ConfessionEmbedFactory
                     .buildConfessionEmbed(
-                        confessionId = confession.id,
+                                confessionId = confession.publicConfessionId,
                         content = confession.content,
                         authorId = confession.authorId,
                         embedColor = embedColor
@@ -350,15 +376,8 @@ class EventRegistrar(
 
             actionRow {
                 interactionButton(
-                    style = dev.kord.common.entity.ButtonStyle.Primary,
-                    customId = "submit-confession"
-                ) {
-                    label = "Submit a Confession!"
-                }
-
-                interactionButton(
                     style = dev.kord.common.entity.ButtonStyle.Secondary,
-                    customId = "reply-thread:${confession.messageId}"
+                    customId = "reply-thread:pending"
                 ) {
                     label = "Reply"
                 }
@@ -384,7 +403,7 @@ class EventRegistrar(
         }
 
         confessionService.updateMessageId(
-            confessionId = confession.id,
+            confessionId = confession.publicConfessionId,
             messageId = publishedMessage.id.value.toLong()
         )
 
@@ -395,7 +414,7 @@ class EventRegistrar(
             embed {
                 ConfessionEmbedFactory
                     .buildConfessionEmbed(
-                        confessionId = confession.id,
+                        confessionId = confession.publicConfessionId,
                         content = confession.content,
                         authorId = confession.authorId,
                         embedColor = resolveMemberColor(
@@ -430,7 +449,7 @@ class EventRegistrar(
 
         interaction.respondEphemeral {
             content =
-                "Confession #${confession.id} approved and published.\n$jumpUrl"
+                "Confession #${confession.publicConfessionId} approved and published.\n$jumpUrl"
 
         }
     }
@@ -448,7 +467,9 @@ class EventRegistrar(
                 ?: return
 
         val reply =
-            confessionService.getConfession(replyId)
+            confessionService.getConfessionById(
+                confessionId = replyId
+            )
                 ?: return
 
         val parentConfessionId =
@@ -456,7 +477,9 @@ class EventRegistrar(
                 ?: return
 
         val parentConfession =
-            confessionService.getConfession(parentConfessionId)
+            confessionService.getConfessionById(
+                confessionId = parentConfessionId
+            )
                 ?: return
 
         val thread =
@@ -499,7 +522,7 @@ class EventRegistrar(
             embed {
                 ConfessionEmbedFactory
                     .buildReplyEmbed(
-                        confessionId = parentConfession.id,
+                        confessionId = parentConfession.publicConfessionId,
                         content = reply.content,
                         authorId = reply.authorId,
                         embedColor = resolveMemberColor(
@@ -525,6 +548,13 @@ class EventRegistrar(
         replyMessage.edit {
             actionRow {
                 interactionButton(
+                    style = dev.kord.common.entity.ButtonStyle.Primary,
+                    customId = "submit-confession"
+                ) {
+                    label = "Submit a Confession!"
+                }
+
+                interactionButton(
                     style = dev.kord.common.entity.ButtonStyle.Secondary,
                     customId = "reply-thread:${replyMessage.id.value}"
                 ) {
@@ -548,7 +578,7 @@ class EventRegistrar(
                         confessionId = parentConfession.id,
                         content = reply.content,
                         authorId = reply.authorId,
-                        titleText = "Approved Anonymous Reply (#${parentConfession.id})",
+                        titleText = "Approved Anonymous Reply (#${parentConfession.publicConfessionId})",
                         embedColor = resolveMemberColor(
                             guildId = reply.guildId,
                             authorId = reply.authorId
@@ -578,7 +608,7 @@ class EventRegistrar(
 
         interaction.respondEphemeral {
             content =
-                "Reply for confession #${parentConfession.id} approved and published."
+                "Reply for confession #${parentConfession.publicConfessionId} approved and published."
         }
     }
 
@@ -673,7 +703,10 @@ class EventRegistrar(
                 ?.takeIf { it.isNotBlank() }
 
         val confession =
-            confessionService.getConfessionByMessageId(resolvedMessageId)
+            confessionService.getConfessionByMessageId(
+                guildId = interaction.guildId!!.value.toLong(),
+                messageId = resolvedMessageId
+            )
                 ?: run {
                     interaction.respondEphemeral {
                         content = "Unable to resolve reply target."
@@ -683,7 +716,8 @@ class EventRegistrar(
                 }
 
         val (_, content) = replyService.buildReply(
-            confessionId = confession.id,
+            guildId = confession.guildId,
+            confessionId = confession.publicConfessionId,
             content = replyContent
         )
 
@@ -704,7 +738,7 @@ class EventRegistrar(
             confessionService.createConfession(
                 guildId = confession.guildId,
                 channelId = thread.id.value.toLong(),
-                authorId = confession.authorId,
+                authorId = interaction.user.id.value.toLong(),
                 content = content,
                 imageUrl = attachmentUrl,
                 parentConfessionId = confession.id,
@@ -747,10 +781,10 @@ class EventRegistrar(
                     embed {
                         ConfessionEmbedFactory
                             .buildReplyEmbed(
-                                confessionId = confession.id,
+                                confessionId = confession.publicConfessionId,
                                 content = content,
                                 authorId = confession.authorId,
-                                titleText = "Pending Anonymous Reply (#${confession.id})",
+                                titleText = "Pending Anonymous Reply (#${confession.publicConfessionId})",
                                 embedColor = resolveMemberColor(
                                     guildId = confession.guildId,
                                     authorId = confession.authorId
@@ -872,7 +906,7 @@ class EventRegistrar(
 
         interaction.respondEphemeral {
             this.content =
-                "Anonymous reply delivered to confession #${confession.id}."
+                "Anonymous reply delivered to confession #${confession.publicConfessionId}."
         }
     }
 
@@ -912,11 +946,13 @@ class EventRegistrar(
     ) {
         val confessionId =
             modalId.removePrefix("reject-modal:")
-                .toIntOrNull()
+                .toLongOrNull()
                 ?: return
 
         val confession =
-            confessionService.getConfession(confessionId)
+            confessionService.getConfessionById(
+                confessionId = confessionId.toInt()
+            )
                 ?: return
 
         val reason =
@@ -1002,7 +1038,7 @@ class EventRegistrar(
                         color = dev.kord.common.Color(0xED4245)
 
                         footer {
-                            text = "Confession #${confession.id}"
+                            text = "Confession #${confession.publicConfessionId}"
                         }
                     }
                 }
@@ -1010,7 +1046,7 @@ class EventRegistrar(
 
         interaction.respondEphemeral {
             content =
-                "Confession #${confession.id} rejected."
+                "Confession #${confession.publicConfessionId} rejected."
         }
     }
 
@@ -1204,7 +1240,7 @@ class EventRegistrar(
             }
 
             responder(
-                "Confession #${confession.id} submitted for moderator review."
+                "Confession #${confession.publicConfessionId} submitted for moderator review."
             )
 
             return
@@ -1306,7 +1342,7 @@ class EventRegistrar(
         )
 
         responder(
-            "Confession #${confession.id} submitted successfully."
+            "Confession #${confession.publicConfessionId} submitted successfully."
         )
     }
 
@@ -1320,7 +1356,12 @@ class EventRegistrar(
             interaction.command.strings["reply"]
                 ?: return
 
+        val guildId =
+            interaction.guildId?.value?.toLong()
+                ?: return
+
         val (confession, content) = replyService.buildReply(
+            guildId = guildId,
             confessionId = confessionId,
             content = reply
         )
@@ -1336,7 +1377,7 @@ class EventRegistrar(
             confessionService.createConfession(
                 guildId = confession.guildId,
                 channelId = thread.id.value.toLong(),
-                authorId = confession.authorId,
+                authorId = interaction.user.id.value.toLong(),
                 content = content,
                 imageUrl = null,
                 parentConfessionId = confession.id,
@@ -1452,7 +1493,7 @@ class EventRegistrar(
 
         interaction.respondEphemeral {
             this.content =
-                "Anonymous reply delivered to confession #$confessionId."
+                "Anonymous reply delivered to confession #${confession.publicConfessionId}."
         }
     }
 
@@ -1629,7 +1670,7 @@ class EventRegistrar(
         return try {
             channel.startPublicThreadWithMessage(
                 messageId = message.id,
-                name = "confession-${confession.id}-replies"
+                name = "confession-${confession.publicConfessionId}-replies"
             )
         } catch (_: Exception) {
             message.fetchPublicThreadOrNull()
@@ -1647,7 +1688,7 @@ class EventRegistrar(
                 ?.asChannelOrNull() as? GuildMessageChannel
 
         if (threadChannel != null &&
-            threadChannel.name.startsWith("confession-${confession.id}-replies")
+            threadChannel.name.startsWith("confession-${confession.publicConfessionId}-replies")
         ) {
             return threadChannel
         }

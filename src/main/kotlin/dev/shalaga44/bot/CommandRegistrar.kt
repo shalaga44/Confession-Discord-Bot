@@ -199,73 +199,50 @@ class CommandRegistrar(
                             "description",
                             "Submit an anonymous confession"
                         )
+                    }
+                )
 
+                add(
+                    buildJsonObject {
+                        put("name", "reply")
                         put(
-                            "options",
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("name", "report")
-                                        put(
-                                            "description",
-                                            "Report a confession"
-                                        )
-                                    }
-                                )
-
-                                add(
-                                    buildJsonObject {
-                                        put("name", "config")
-                                        put(
-                                            "description",
-                                            "Configure confession bot"
-                                        )
-                                    }
-                                )
-
-                                add(
-                                    buildJsonObject {
-                                        put("name", "report")
-                                        put(
-                                            "description",
-                                            "Report a confession"
-                                        )
-                                    }
-                                )
-
-                                add(
-                                    buildJsonObject {
-                                        put("name", "config")
-                                        put(
-                                            "description",
-                                            "Configure confession bot"
-                                        )
-                                    }
-                                )
-
-                                add(
-                                    buildJsonObject {
-                                        put("name", "confessban")
-                                        put(
-                                            "description",
-                                            "Ban a user from confessing"
-                                        )
-                                    }
-                                )
-
-                                add(
-                                    buildJsonObject {
-                                        put("name", "help")
-                                        put(
-                                            "description",
-                                            "Show bot help and setup instructions"
-                                        )
-                                    }
-                                )
-                            }
+                            "description",
+                            "Reply anonymously to a confession"
                         )
-                    })
-            })
+                    }
+                )
+
+                add(
+                    buildJsonObject {
+                        put("name", "report")
+                        put(
+                            "description",
+                            "Report a confession"
+                        )
+                    }
+                )
+
+                add(
+                    buildJsonObject {
+                        put("name", "config")
+                        put(
+                            "description",
+                            "Configure confession bot"
+                        )
+                    }
+                )
+
+                add(
+                    buildJsonObject {
+                        put("name", "help")
+                        put(
+                            "description",
+                            "Show bot help and setup instructions"
+                        )
+                    }
+                )
+            }
+        )
     }
 
 }

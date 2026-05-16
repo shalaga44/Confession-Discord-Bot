@@ -2,12 +2,9 @@ package dev.shalaga44.services
 
 import dev.shalaga44.models.Confession
 import dev.shalaga44.storage.tables.ConfessionsTable
-import org.jetbrains.exposed.sql.ResultRow
-import org.jetbrains.exposed.sql.SortOrder
-import org.jetbrains.exposed.sql.insert
-import org.jetbrains.exposed.sql.selectAll
+import dev.shalaga44.storage.tables.GuildSettingsTable
+import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.transactions.transaction
-import org.jetbrains.exposed.sql.update
 
 class ConfessionService {
 
@@ -21,30 +18,59 @@ class ConfessionService {
         messageId: Long
     ): Confession {
         return transaction {
-            val statement = ConfessionsTable.insert {
+            val currentCounter =
+                GuildSettingsTable
+                    .select(GuildSettingsTable.nextConfessionId)
+                    .where {
+                        GuildSettingsTable.id eq guildId
+                    }
+                    .first()[GuildSettingsTable.nextConfessionId]
+
+            GuildSettingsTable.update({
+                GuildSettingsTable.id eq guildId
+            }) {
+                it[nextConfessionId] = currentCounter + 1
+            }
+
+            val createdAt = System.currentTimeMillis()
+
+            val persistedMessageId =
+                if (messageId == 0L) {
+                    -createdAt
+                } else {
+                    messageId
+                }
+
+            ConfessionsTable.insert {
                 it[ConfessionsTable.guildId] = guildId
+                it[publicConfessionId] = currentCounter
                 it[ConfessionsTable.channelId] = channelId
                 it[ConfessionsTable.authorId] = authorId
                 it[ConfessionsTable.content] = content
                 it[ConfessionsTable.imageUrl] = imageUrl
                 it[ConfessionsTable.parentConfessionId] = parentConfessionId
-                it[ConfessionsTable.messageId] = messageId
-                it[ConfessionsTable.createdAt] = System.currentTimeMillis()
+                it[ConfessionsTable.messageId] = persistedMessageId
+                it[ConfessionsTable.createdAt] = createdAt
             }
 
-            val id = statement[ConfessionsTable.id].value
-
-            getConfession(id)
+            getConfession(
+                guildId = guildId,
+                publicConfessionId = currentCounter
+            )
                 ?: error("Failed to create confession")
         }
     }
 
-    fun getConfession(id: Int): Confession? {
+    fun getConfession(
+        guildId: Long,
+        publicConfessionId: Int
+    ): Confession? {
         return transaction {
             ConfessionsTable
                 .selectAll()
                 .where {
-                    ConfessionsTable.id eq id
+                    (ConfessionsTable.guildId eq guildId) and
+                        (ConfessionsTable.publicConfessionId eq publicConfessionId)
                 }
                 .firstOrNull()
                 ?.toConfession()
@@ -52,19 +78,34 @@ class ConfessionService {
     }
 
     fun getConfessionByMessageId(
+        guildId: Long,
         messageId: Long
     ): Confession? {
         return transaction {
             ConfessionsTable
                 .selectAll()
                 .where {
-                    ConfessionsTable.messageId eq messageId
+                    (ConfessionsTable.guildId eq guildId) and
+                        (ConfessionsTable.messageId eq messageId)
                 }
                 .firstOrNull()
                 ?.toConfession()
         }
     }
 
+    fun getConfessionById(
+        confessionId: Int
+    ): Confession? {
+        return transaction {
+            ConfessionsTable
+                .selectAll()
+                .where {
+                    ConfessionsTable.id eq confessionId
+                }
+                .firstOrNull()
+                ?.toConfession()
+        }
+    }
 
     fun updateMessageId(
         confessionId: Int,
@@ -94,6 +135,7 @@ class ConfessionService {
     private fun ResultRow.toConfession(): Confession {
         return Confession(
             id = this[ConfessionsTable.id].value,
+            publicConfessionId = this[ConfessionsTable.publicConfessionId],
             guildId = this[ConfessionsTable.guildId],
             channelId = this[ConfessionsTable.channelId],
             authorId = this[ConfessionsTable.authorId],

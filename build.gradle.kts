@@ -29,6 +29,9 @@ dependencies {
 
     implementation("org.jsoup:jsoup:1.19.1")
 
+    implementation("org.flywaydb:flyway-core:12.6.1")
+    implementation("org.flywaydb:flyway-database-nc-sqlite:12.6.1")
+
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
 
     implementation("ch.qos.logback:logback-classic:1.5.18")

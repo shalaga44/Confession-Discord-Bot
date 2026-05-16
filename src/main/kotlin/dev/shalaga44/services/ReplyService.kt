@@ -7,10 +7,15 @@ class ReplyService(
 ) {
 
     fun buildReply(
+        guildId: Long,
         confessionId: Int,
         content: String
     ): Pair<Confession, String> {
-        val confession = confessionService.getConfession(confessionId)
+        val confession =
+            confessionService.getConfession(
+                guildId = guildId,
+                publicConfessionId = confessionId
+            )
             ?: error("Confession not found")
 
         return confession to content.trim()

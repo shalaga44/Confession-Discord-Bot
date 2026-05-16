@@ -2,6 +2,7 @@ package dev.shalaga44.models
 
 data class Confession(
     val id: Int,
+    val publicConfessionId: Int,
     val guildId: Long,
     val channelId: Long,
     val authorId: Long,
