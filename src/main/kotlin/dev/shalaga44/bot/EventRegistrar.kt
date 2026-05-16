@@ -78,6 +78,7 @@ class EventRegistrar(
     }
 
     private suspend fun registerGuildJoinListener() {
+        return
         kord.on<GuildCreateEvent> {
 
             runCatching {
