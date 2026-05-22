@@ -24,7 +24,11 @@ class ConfessionService {
                     .where {
                         GuildSettingsTable.id eq guildId
                     }
-                    .first()[GuildSettingsTable.nextConfessionId]
+                    .firstOrNull()
+                    ?.get(GuildSettingsTable.nextConfessionId)
+                    ?: error(
+                        "Guild is not configured. Run /config channel first."
+                    )
 
             GuildSettingsTable.update({
                 GuildSettingsTable.id eq guildId

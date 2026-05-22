@@ -1144,9 +1144,21 @@ class EventRegistrar(
         val settings =
             guildConfigService.getSettings(guildId)
 
+        if (settings == null) {
+            responder(
+                """
+                This server has not configured the confession bot yet.
+                
+                An administrator must run:
+                `/config channel`
+                """.trimIndent()
+            )
+
+            return
+        }
+
         val channelId =
-            settings?.confessionChannelId
-                ?: sourceChannelId
+            settings.confessionChannelId
 
         val confession =
             confessionService.createConfession(
