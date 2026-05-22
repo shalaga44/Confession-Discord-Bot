@@ -1203,7 +1203,7 @@ class EventRegistrar(
                                 confessionId = confession.id,
                                 content = confession.content,
                                 authorId = confession.authorId,
-                                titleText = "#$sourceChannelName",
+                                titleText = "<#$channelId>",
                                 embedColor = member?.displayColor()
                             )
                             .invoke(this)
