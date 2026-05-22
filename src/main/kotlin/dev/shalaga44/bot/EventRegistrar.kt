@@ -36,6 +36,7 @@ import dev.shalaga44.services.ReplyService
 import dev.shalaga44.util.displayColor
 import dev.shalaga44.util.stableEmojiIdentity
 import dev.shalaga44.util.ImageUtil
+import dev.shalaga44.util.CrashReporter
 import io.ktor.client.request.forms.*
 import dev.kord.rest.request.KtorRequestException
 import java.time.Instant
@@ -46,10 +47,16 @@ private val Interaction.guildId: Snowflake?
     }
 
 class EventRegistrar(
-    private val kord: Kord
+    private val kord: Kord,
+    ownerId: Long
 ) {
 
     private val confessionService = ConfessionService()
+    private val crashReporter =
+        CrashReporter(
+            kord = kord,
+            ownerId = ownerId
+        )
     private val moderationService = ModerationService()
     private val guildConfigService = GuildConfigService()
     private val replyService = ReplyService(confessionService)
@@ -127,6 +134,17 @@ class EventRegistrar(
                 )
 
                 it.printStackTrace()
+
+                crashReporter.report(
+                    context =
+                        """
+                        Event Type: ChatInputCommandInteractionCreateEvent
+                        Command: ${interaction.command.rootName}
+                        Guild: ${interaction.guildId?.value}
+                        User: ${interaction.user.id.value}
+                        """.trimIndent(),
+                    throwable = it
+                )
             }
         }
     }
@@ -193,6 +211,17 @@ class EventRegistrar(
                 )
 
                 it.printStackTrace()
+
+                crashReporter.report(
+                    context =
+                        """
+                        Event Type: ButtonInteractionCreateEvent
+                        Component ID: ${interaction.componentId}
+                        Guild: ${interaction.guildId?.value}
+                        User: ${interaction.user.id.value}
+                        """.trimIndent(),
+                    throwable = it
+                )
 
                 runCatching {
                     interaction.respondEphemeral {
@@ -1160,6 +1189,21 @@ class EventRegistrar(
         val channelId =
             settings.confessionChannelId
 
+        if (settings.reviewEnabled &&
+            settings.loggingChannelId == null
+        ) {
+            responder(
+                """
+                Review mode is enabled but no moderation logging channel is configured.
+                
+                An administrator must run:
+                `/config logging`
+                """.trimIndent()
+            )
+
+            return
+        }
+
         val confession =
             confessionService.createConfession(
                 guildId = guildId,
@@ -1171,82 +1215,81 @@ class EventRegistrar(
                 messageId = 0L
             )
 
-        if (settings?.reviewEnabled == true) {
+        if (settings.reviewEnabled) {
             val loggingChannelId =
                 settings.loggingChannelId
+                    ?: return
 
-            if (loggingChannelId != null) {
-                val loggingChannel =
-                    kord.getChannel(
-                        Snowflake(loggingChannelId)
-                    )
-                        ?.asChannelOf<MessageChannel>()
+            val loggingChannel =
+                kord.getChannel(
+                    Snowflake(loggingChannelId)
+                )
+                    ?.asChannelOf<MessageChannel>()
 
-                loggingChannel?.createMessage {
-                    imageUrl?.let { resolvedImageUrl ->
-                        val imageBytes =
-                            java.net.URL(resolvedImageUrl)
-                                .openStream()
-                                .readBytes()
+            loggingChannel?.createMessage {
+                imageUrl?.let { resolvedImageUrl ->
+                    val imageBytes =
+                        java.net.URL(resolvedImageUrl)
+                            .openStream()
+                            .readBytes()
 
-                        val spoilerFilename =
-                            ImageUtil.spoilerFilename(
-                                prefix = "review",
-                                id = confession.id,
-                                imageUrl = resolvedImageUrl
-                            )
-
-                        addFile(
-                            name = spoilerFilename,
-                            contentProvider = ChannelProvider {
-                                io.ktor.utils.io.ByteReadChannel(imageBytes)
-                            }
+                    val spoilerFilename =
+                        ImageUtil.spoilerFilename(
+                            prefix = "review",
+                            id = confession.id,
+                            imageUrl = resolvedImageUrl
                         )
+
+                    addFile(
+                        name = spoilerFilename,
+                        contentProvider = ChannelProvider {
+                            io.ktor.utils.io.ByteReadChannel(imageBytes)
+                        }
+                    )
+                }
+
+                embed {
+                    val member =
+                        kord.getUser(
+                            Snowflake(authorId)
+                        )?.asMember(Snowflake(guildId))
+
+                    ConfessionEmbedFactory
+                        .buildConfessionEmbed(
+                            confessionId = confession.id,
+                            content = confession.content,
+                            authorId = confession.authorId,
+                            titleText = "<#$channelId>",
+                            embedColor = member?.displayColor()
+                        )
+                        .invoke(this)
+
+                    member?.let {
+                        field {
+                            name = "Submitted By"
+                            value = it.stableEmojiIdentity()
+                            inline = true
+                        }
                     }
 
-                    embed {
-                        val member =
-                            kord.getUser(
-                                Snowflake(authorId)
-                            )?.asMember(Snowflake(guildId))
+                    footer {
+                        text = "Pending Moderator Review"
+                    }
+                }
 
-                        ConfessionEmbedFactory
-                            .buildConfessionEmbed(
-                                confessionId = confession.id,
-                                content = confession.content,
-                                authorId = confession.authorId,
-                                titleText = "<#$channelId>",
-                                embedColor = member?.displayColor()
-                            )
-                            .invoke(this)
-
-                        member?.let {
-                            field {
-                                name = "Submitted By"
-                                value = it.stableEmojiIdentity()
-                                inline = true
-                            }
-                        }
-
-                        footer {
-                            text = "Pending Moderator Review"
-                        }
+                actionRow {
+                    interactionButton(
+                        style = dev.kord.common.entity.ButtonStyle.Success,
+                        customId = "approve:${confession.id}"
+                    ) {
+                        label = "Approve"
                     }
 
-                    actionRow {
-                        interactionButton(
-                            style = dev.kord.common.entity.ButtonStyle.Success,
-                            customId = "approve:${confession.id}"
-                        ) {
-                            label = "Approve"
-                        }
-
-                        interactionButton(
-                            style = dev.kord.common.entity.ButtonStyle.Danger,
-                            customId = "reject:${confession.id}"
-                        ) {
-                            label = "Reject"
-                        }
+                    interactionButton(
+                        style = dev.kord.common.entity.ButtonStyle.Danger,
+                        customId = "reject:${confession.id}"
+                    ) {
+                        label = "Reject"
                     }
                 }
             }
