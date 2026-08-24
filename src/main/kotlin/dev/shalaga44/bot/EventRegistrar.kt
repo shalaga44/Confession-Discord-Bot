@@ -39,6 +39,8 @@ import dev.shalaga44.util.ImageUtil
 import dev.shalaga44.util.CrashReporter
 import io.ktor.client.request.forms.*
 import dev.kord.rest.request.KtorRequestException
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.take
 import java.time.Instant
 
 private val Interaction.guildId: Snowflake?
@@ -522,11 +524,7 @@ class EventRegistrar(
                 null
             }
 
-        val replyMessage = thread.createMessage {
-            targetMessageId?.let {
-                messageReference = Snowflake(it)
-            }
-
+        val replyMessage = thread.createMessageWithSafeReference(targetMessageId, parentConfession.content) {
             reply.imageUrl?.let { imageUrl ->
                 val imageBytes =
                     java.net.URL(imageUrl)
@@ -866,11 +864,7 @@ class EventRegistrar(
                 null
             }
 
-        val replyMessage = thread.createMessage {
-            targetMessageId?.let {
-                messageReference = Snowflake(it)
-            }
-
+        val replyMessage = thread.createMessageWithSafeReference(targetMessageId, confession.content) {
             attachmentUrl?.let { imageUrl ->
                 val imageBytes =
                     java.net.URL(imageUrl)
@@ -1510,11 +1504,7 @@ class EventRegistrar(
                 null
             }
 
-        val replyMessage = thread.createMessage {
-            targetMessageId?.let {
-                messageReference = Snowflake(it)
-            }
-
+        val replyMessage = thread.createMessageWithSafeReference(targetMessageId, confession.content) {
             embed {
                 ConfessionEmbedFactory
                     .buildReplyEmbed(
@@ -1749,6 +1739,57 @@ class EventRegistrar(
         }
 
         return null
+    }
+
+    private suspend fun GuildMessageChannel.findReplyTargetMessageId(
+        candidateMessageId: Long?,
+        expectedContent: String?
+    ): Snowflake? {
+        candidateMessageId ?: return null
+
+        val candidateSnowflake = Snowflake(candidateMessageId)
+
+        try {
+            getMessage(candidateSnowflake)
+            return candidateSnowflake
+        } catch (_: dev.kord.core.exception.EntityNotFoundException) {
+        }
+
+        expectedContent ?: return null
+
+        return try {
+            messages
+                .take(500)
+                .firstOrNull { message ->
+                    message.embeds.any { embed -> embed.description == expectedContent }
+                }
+                ?.id
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private suspend fun GuildMessageChannel.createMessageWithSafeReference(
+        candidateMessageId: Long?,
+        expectedContent: String?,
+        builder: suspend dev.kord.rest.builder.message.create.UserMessageCreateBuilder.() -> Unit
+    ): Message {
+        val safeReferenceId = findReplyTargetMessageId(candidateMessageId, expectedContent)
+
+        return try {
+            createMessage {
+                safeReferenceId?.let { messageReference = it }
+                builder()
+            }
+        } catch (e: KtorRequestException) {
+            if (safeReferenceId != null &&
+                e.message?.contains("Unknown message", ignoreCase = true) == true
+            ) {
+                createMessage { builder() }
+            } else {
+                throw e
+            }
+        }
     }
 
     private suspend fun Message.fetchPublicThreadOrNull(): GuildMessageChannel? {
